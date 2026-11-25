@@ -1,0 +1,73 @@
+name: Build APK and website
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unpack project.zip if it was uploaded
+        run: |
+          if [ -f project.zip ]; then
+            unzip -o -q project.zip -d unpacked
+            if [ -d unpacked/SaveYourTime ]; then echo "SRC=unpacked/SaveYourTime" >> $GITHUB_ENV; else echo "SRC=unpacked" >> $GITHUB_ENV; fi
+          else
+            echo "SRC=." >> $GITHUB_ENV
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Build APK
+        working-directory: ${{ env.SRC }}
+        run: gradle :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Prepare website
+        run: |
+          mkdir -p public
+          cp -r "$SRC"/website/* public/
+          cp "$SRC"/app/build/outputs/apk/release/app-release.apk public/SaveYourTime.apk
+          touch public/.nojekyll
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SaveYourTime-apk
+          path: public/SaveYourTime.apk
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
